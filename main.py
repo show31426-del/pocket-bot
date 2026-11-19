@@ -9,7 +9,7 @@ logger = logging.getLogger("pocket-bot")
 
 app = FastAPI()
 
-SSID = os.getenv("POCKET_OPTION", "")
+SSID = os.getenv("POCKET_OPTION", "").strip()
 ASSET = os.getenv("ASSET", "EURUSD_otc")
 AMOUNT = float(os.getenv("TRADE_AMOUNT", "1.0"))
 DURATION = int(os.getenv("TRADE_DURATION", "60"))
@@ -50,7 +50,6 @@ def analyze_signal(closes: list[float]) -> str | None:
     if ema_fast is None or ema_slow is None or rsi is None:
         return None
 
-    # Automatic M1 scalping rules: EMA trend + RSI filter
     if ema_fast > ema_slow and rsi < 70:
         return "call"
     if ema_fast < ema_slow and rsi > 30:
@@ -59,7 +58,7 @@ def analyze_signal(closes: list[float]) -> str | None:
 
 
 async def extract_closes(client: PocketOptionAsync, asset: str, period: int = 60, count: int = 50) -> list[float]:
-    candles = await client.get_candles(asset, period, count)
+    candles = await client.candles(asset, period, count)
     closes: list[float] = []
     if not candles:
         return closes
@@ -76,45 +75,40 @@ async def extract_closes(client: PocketOptionAsync, asset: str, period: int = 60
 async def automatic_trading_loop():
     logger.info("Automatic trading loop starting...")
     if not SSID:
-        logger.warning("POCKET_OPTION environment variable is empty. Bot will not trade.")
+        logger.warning("POCKET_OPTION is empty in Render Environment Variables.")
         return
 
-    client = PocketOptionAsync(SSID)
     last_trade_time = 0.0
 
     while True:
         try:
-            # Connect / ensure active connection
-            await client.connect()
+            async with PocketOptionAsync(SSID) as client:
+                logger.info("Connected to PocketOptionAsync.")
+                closes = await extract_closes(client, ASSET, period=60, count=50)
 
-            closes = await extract_closes(client, ASSET, period=60, count=50)
-            if len(closes) < 22:
-                logger.info(f"Waiting for more candle data on {ASSET} (got {len(closes)} candles)...")
-                await asyncio.sleep(CHECK_INTERVAL)
-                continue
-
-            signal = analyze_signal(closes)
-            now = asyncio.get_running_loop().time()
-
-            if signal and (now - last_trade_time) >= TRADE_COOLDOWN:
-                logger.info(f"Signal detected on {ASSET}: {signal.upper()} | Placing trade of ${AMOUNT}...")
-                if signal == "call":
-                    order = await client.buy(asset=ASSET, amount=AMOUNT, time=DURATION)
+                if len(closes) < 22:
+                    logger.info(f"Not enough candles yet ({len(closes)}). Waiting...")
                 else:
-                    order = await client.sell(asset=ASSET, amount=AMOUNT, time=DURATION)
+                    signal = analyze_signal(closes)
+                    now = asyncio.get_running_loop().time()
 
-                last_trade_time = now
-                logger.info(f"Automatic trade executed on {ASSET} ({signal.upper()}): {order}")
-            elif signal:
-                logger.info(f"Signal {signal.upper()} on {ASSET} skipped due to cooldown.")
-            else:
-                logger.info(f"Scanning {ASSET}: no entry signal yet.")
+                    if signal and (now - last_trade_time) >= TRADE_COOLDOWN:
+                        logger.info(f"Placing {signal.upper()} trade on {ASSET} for ${AMOUNT}...")
+                        if signal == "call":
+                            order = await client.buy(asset=ASSET, amount=AMOUNT, time=DURATION)
+                        else:
+                            order = await client.sell(asset=ASSET, amount=AMOUNT, time=DURATION)
+                        last_trade_time = now
+                        logger.info(f"Trade result: {order}")
+                    elif signal:
+                        logger.info(f"Signal {signal.upper()} found, waiting for cooldown.")
+                    else:
+                        logger.info(f"Scanning {ASSET}: no signal yet.")
 
-            await asyncio.sleep(CHECK_INTERVAL)
+        except Exception:
+            logger.exception("Bot loop hit an error; retrying soon...")
 
-        except Exception as e:
-            logger.error(f"Error in automatic trading loop: {e}")
-            await asyncio.sleep(15)
+        await asyncio.sleep(CHECK_INTERVAL)
 
 
 @app.on_event("startup")

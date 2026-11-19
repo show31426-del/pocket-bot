@@ -1,5 +1,3 @@
-websockets
-pandas
-requests
 fastapi
 uvicorn
+BinaryOptionsToolsV2

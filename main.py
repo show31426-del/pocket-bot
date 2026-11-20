@@ -18,18 +18,40 @@ ASSET = os.getenv("ASSET", "EURUSD_otc")
 def normalize_ssid(raw_ssid: str) -> str:
     ssid = raw_ssid.strip()
     try:
-        # If it's a Socket.IO packet starting with '42', extract the JSON payload
+        # Handle Socket.IO packet format starting with '42'
         if ssid.startswith("42"):
-            match = re.search(r'([\[\{].*)', ssid)
+            match = re.search(r'(\[.*\])', ssid)
             if match:
                 prefix = ssid[:match.start()]
-                json_str = match.group(1)
-                # json.loads automatically resolves duplicate keys
-                data = json.loads(json_str)
+                array_str = match.group(1)
+                data = json.loads(array_str)
+                
+                # Ensure the payload structure has the required dictionary
+                if isinstance(data, list) and len(data) > 1:
+                    if isinstance(data[1], dict):
+                        payload = data[1]
+                        # Map alternative token keys to 'session' if 'session' is missing
+                        if "session" not in payload:
+                            for alt_key in ["sessionToken", "token", "ssid"]:
+                                if alt_key in payload:
+                                    payload["session"] = payload[alt_key]
+                                    break
+                        # Ensure 'uid' exists
+                        if "uid" not in payload:
+                            payload["uid"] = 123456  # Default placeholder if missing
+                            
                 return prefix + json.dumps(data)
         else:
-            # If it's a raw JSON string
+            # Handle plain JSON object string
             data = json.loads(ssid)
+            if isinstance(data, dict):
+                if "session" not in data:
+                    for alt_key in ["sessionToken", "token", "ssid"]:
+                        if alt_key in payload if 'payload' in locals() else alt_key in data:
+                            data["session"] = data[alt_key]
+                            break
+                if "uid" not in data:
+                    data["uid"] = 123456
             return json.dumps(data)
     except Exception:
         logger.exception("Failed to normalize SSID; passing raw value.")

@@ -19,7 +19,14 @@ def normalize_ssid(raw_ssid: str) -> str:
     if not ssid.startswith("42"):
         return ssid
     try:
-        parsed = json.loads(ssid[2:])
+        def no_duplicates(pairs):
+            clean = {}
+            for k, v in pairs:
+                if k not in clean:
+                    clean[k] = v
+            return clean
+
+        parsed = json.loads(ssid[2:], object_pairs_hook=no_duplicates)
         if (
             isinstance(parsed, list)
             and len(parsed) >= 2

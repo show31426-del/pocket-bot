@@ -1,3 +1,4 @@
-from importlib.metadata import version
 
-print("BOT LIBRARY VERSION:", version("BinaryOptionsToolsV2"))
+fastapi
+uvicorn
+BinaryOptionsToolsV2

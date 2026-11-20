@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -16,21 +17,23 @@ ASSET = os.getenv("ASSET", "EURUSD_otc")
 
 def normalize_ssid(raw_ssid: str) -> str:
     ssid = raw_ssid.strip()
-    if not ssid.startswith("42"):
-        return ssid
     try:
-        cleaned = re.sub(r',\s*"session"\s*:\s*"[^"]*"', "", ssid)
-        cleaned = re.sub(r'"session"\s*:\s*"[^"]*"\s*,', "", cleaned)
-        cleaned = re.sub(
-            r'("sessionToken"\s*:\s*("[^"]*"))',
-            r'\1,"session":\2',
-            cleaned,
-            count=1,
-        )
-        return cleaned
+        # If it's a Socket.IO packet starting with '42', extract the JSON payload
+        if ssid.startswith("42"):
+            match = re.search(r'([\[\{].*)', ssid)
+            if match:
+                prefix = ssid[:match.start()]
+                json_str = match.group(1)
+                # json.loads automatically resolves duplicate keys
+                data = json.loads(json_str)
+                return prefix + json.dumps(data)
+        else:
+            # If it's a raw JSON string
+            data = json.loads(ssid)
+            return json.dumps(data)
     except Exception:
         logger.exception("Failed to normalize SSID; passing raw value.")
-        return ssid
+    return ssid
 
 
 async def automatic_trading_loop():

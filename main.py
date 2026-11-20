@@ -1,7 +1,7 @@
 import asyncio
-import json
 import logging
 import os
+import re
 
 from fastapi import FastAPI
 
@@ -19,26 +19,18 @@ def normalize_ssid(raw_ssid: str) -> str:
     if not ssid.startswith("42"):
         return ssid
     try:
-        def no_duplicates(pairs):
-            clean = {}
-            for k, v in pairs:
-                if k not in clean:
-                    clean[k] = v
-            return clean
-
-        parsed = json.loads(ssid[2:], object_pairs_hook=no_duplicates)
-        if (
-            isinstance(parsed, list)
-            and len(parsed) >= 2
-            and isinstance(parsed[1], dict)
-        ):
-            auth_data = parsed[1]
-            if "session" not in auth_data and "sessionToken" in auth_data:
-                auth_data["session"] = auth_data["sessionToken"]
-            return "42" + json.dumps(parsed, separators=(",", ":"))
+        cleaned = re.sub(r',\s*"session"\s*:\s*"[^"]*"', "", ssid)
+        cleaned = re.sub(r'"session"\s*:\s*"[^"]*"\s*,', "", cleaned)
+        cleaned = re.sub(
+            r'("sessionToken"\s*:\s*("[^"]*"))',
+            r'\1,"session":\2',
+            cleaned,
+            count=1,
+        )
+        return cleaned
     except Exception:
         logger.exception("Failed to normalize SSID; passing raw value.")
-    return ssid
+        return ssid
 
 
 async def automatic_trading_loop():

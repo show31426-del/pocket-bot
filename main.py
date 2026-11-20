@@ -1,8 +1,6 @@
 import asyncio
-import json
 import logging
 import os
-import re
 
 from fastapi import FastAPI
 
@@ -11,52 +9,8 @@ logger = logging.getLogger("pocket-bot")
 
 app = FastAPI()
 
-SSID = os.getenv("POCKET_OPTION", "")
+SSID = os.getenv("POCKET_OPTION", "").strip()
 ASSET = os.getenv("ASSET", "EURUSD_otc")
-
-
-def normalize_ssid(raw_ssid: str) -> str:
-    ssid = raw_ssid.strip()
-    try:
-        # Handle Socket.IO packet format starting with '42'
-        if ssid.startswith("42"):
-            match = re.search(r'(\[.*\])', ssid)
-            if match:
-                prefix = ssid[:match.start()]
-                array_str = match.group(1)
-                data = json.loads(array_str)
-                
-                # Ensure the payload structure has the required dictionary
-                if isinstance(data, list) and len(data) > 1:
-                    if isinstance(data[1], dict):
-                        payload = data[1]
-                        # Map alternative token keys to 'session' if 'session' is missing
-                        if "session" not in payload:
-                            for alt_key in ["sessionToken", "token", "ssid"]:
-                                if alt_key in payload:
-                                    payload["session"] = payload[alt_key]
-                                    break
-                        # Ensure 'uid' exists
-                        if "uid" not in payload:
-                            payload["uid"] = 123456  # Default placeholder if missing
-                            
-                return prefix + json.dumps(data)
-        else:
-            # Handle plain JSON object string
-            data = json.loads(ssid)
-            if isinstance(data, dict):
-                if "session" not in data:
-                    for alt_key in ["sessionToken", "token", "ssid"]:
-                        if alt_key in payload if 'payload' in locals() else alt_key in data:
-                            data["session"] = data[alt_key]
-                            break
-                if "uid" not in data:
-                    data["uid"] = 123456
-            return json.dumps(data)
-    except Exception:
-        logger.exception("Failed to normalize SSID; passing raw value.")
-    return ssid
-
 
 async def automatic_trading_loop():
     logger.info("Automatic trading loop starting...")
@@ -69,8 +23,8 @@ async def automatic_trading_loop():
 
             from BinaryOptionsToolsV2.pocketoption import PocketOptionAsync
 
-            active_ssid = normalize_ssid(SSID)
-            async with PocketOptionAsync(active_ssid) as client:
+            # Use SSID directly - DO NOT convert to JSON
+            async with PocketOptionAsync(SSID) as client:
                 logger.info("Connected to PocketOptionAsync.")
                 while True:
                     logger.info("Scanning candles for %s...", ASSET)
@@ -79,11 +33,9 @@ async def automatic_trading_loop():
             logger.exception("Bot loop hit an error; retrying soon...")
             await asyncio.sleep(10)
 
-
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(automatic_trading_loop())
-
 
 @app.get("/")
 def health_check():
